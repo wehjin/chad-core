@@ -1,12 +1,11 @@
 use std::sync::mpsc::{channel, Sender};
 
-use crate::allocate_amount;
 use crate::prelude::{Amount, AssetCode, Custodian, LotId, SegmentType};
+use crate::SegmentType::{Expo, Linear, Liquid, Stable, Unknown};
 
 pub(crate) enum PortfolioMsg {
 	Lots(Sender<Vec<Lot>>)
 }
-
 
 pub struct Portfolio {
 	pub(crate) tx: Sender<PortfolioMsg>
@@ -90,3 +89,12 @@ impl Lot {
 	pub fn currency_value(&self) -> Amount { self.share_count * self.share_price }
 }
 
+fn allocate_amount(amount: Amount) -> Vec<(SegmentType, Amount)> {
+	let amount = amount.abs();
+	let expo = amount * Expo.fraction();
+	let linear = amount * Linear.fraction();
+	let stable = amount * Stable.fraction();
+	let liquid = amount * Liquid.fraction();
+	let unknown = amount * Unknown.fraction();
+	vec![(Liquid, liquid), (Stable, stable), (Linear, linear), (Expo, expo), (Unknown, unknown)]
+}

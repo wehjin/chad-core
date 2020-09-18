@@ -7,22 +7,9 @@ use prelude::*;
 
 use crate::LinkMsg::{AssignAsset, RecentPortfolio, UpdateLot, UpdatePrice};
 use crate::portfolio::PortfolioMsg;
-use crate::prelude::SegmentType::{Expo, Linear, Liquid, Stable};
-use crate::SegmentType::Unknown;
 
 mod portfolio;
 pub mod prelude;
-
-
-pub fn allocate_amount(amount: Amount) -> Vec<(SegmentType, Amount)> {
-	let amount = amount.abs();
-	let expo = amount * Expo.fraction();
-	let linear = amount * Linear.fraction();
-	let stable = amount * Stable.fraction();
-	let liquid = amount * Liquid.fraction();
-	let unknown = amount * Unknown.fraction();
-	vec![(Liquid, liquid), (Stable, stable), (Linear, linear), (Expo, expo), (Unknown, unknown)]
-}
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum SegmentType {
@@ -144,3 +131,4 @@ impl Link for SenderLink {
 		Portfolio { tx }
 	}
 }
+

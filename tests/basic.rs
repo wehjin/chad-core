@@ -1,6 +1,6 @@
 extern crate chad_core;
 
-use chad_core::{allocate_amount, Lot, portfolio_link};
+use chad_core::{Lot, portfolio_link};
 use chad_core::prelude::*;
 
 #[test]
@@ -55,16 +55,4 @@ fn portfolio_computes_segment_drift_values() {
 		.map(|it| (it.allocate_value() * 1000.0) as i64)
 		.collect::<Vec<_>>();
 	assert_eq!(allocation_values, vec![64, 96, 240, 600, 0])
-}
-
-#[test]
-fn allocate_computes_sub_amounts() {
-	let allocation = allocate_amount(1.0);
-	assert_eq!(allocation, vec![
-		(SegmentType::Liquid, 0.064),
-		(SegmentType::Stable, 0.096),
-		(SegmentType::Linear, 0.240),
-		(SegmentType::Expo, 0.600),
-		(SegmentType::Unknown, 0.000),
-	]);
 }
