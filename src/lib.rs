@@ -30,6 +30,15 @@ impl SegmentType {
 			SegmentType::Unknown => 0.0f64,
 		}
 	}
+	pub fn default_index(&self) -> usize {
+		match self {
+			SegmentType::Liquid => 0,
+			SegmentType::Stable => 1,
+			SegmentType::Linear => 2,
+			SegmentType::Expo => 3,
+			SegmentType::Unknown => 4,
+		}
+	}
 }
 
 enum LinkMsg {

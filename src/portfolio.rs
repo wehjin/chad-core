@@ -31,30 +31,20 @@ impl Portfolio {
 			Segment { segment_type: SegmentType::Unknown, drift_value: 0.0, allocation_value: 0.0, lots: Vec::new() },
 		];
 		self.lots().into_iter().for_each(|it| {
-			let segment_type = &it.segment;
-			let i = Portfolio::index_of_type(segment_type);
+			let i = it.segment.default_index();
 			segments[i].lots.push(it)
 		});
 		let segment_values = segments.iter().map(Segment::segment_value).collect::<Vec<_>>();
 		let full_value = segment_values.iter().sum();
 		allocate_amount(full_value).iter()
 			.for_each(|(segment, allocated_value)| {
-				let i = Self::index_of_type(segment);
+				let i = segment.default_index();
 				let segment_value = segment_values[i];
 				let drift_value = segment_value - allocated_value;
 				segments[i].drift_value = drift_value;
 				segments[i].allocation_value = *allocated_value;
 			});
 		segments.to_vec()
-	}
-	fn index_of_type(segment_type: &SegmentType) -> usize {
-		match segment_type {
-			SegmentType::Liquid => 0,
-			SegmentType::Stable => 1,
-			SegmentType::Linear => 2,
-			SegmentType::Expo => 3,
-			SegmentType::Unknown => 4,
-		}
 	}
 }
 
@@ -70,7 +60,7 @@ pub struct Segment {
 impl Segment {
 	pub fn segment_type(&self) -> SegmentType { self.segment_type }
 	pub fn drift_value(&self) -> Amount { self.drift_value }
-	pub fn allocate_value(&self) -> Amount { self.allocation_value }
+	pub fn allocation_value(&self) -> Amount { self.allocation_value }
 	pub fn segment_value(&self) -> Amount {
 		self.lots.iter().fold(
 			0.0f64,
