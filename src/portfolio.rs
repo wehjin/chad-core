@@ -1,5 +1,6 @@
 use std::sync::mpsc::{channel, Sender};
 
+use crate::allocate_amount;
 use crate::prelude::{Amount, AssetCode, Custodian, LotId, SegmentType};
 
 pub(crate) enum PortfolioMsg {
@@ -20,34 +21,53 @@ impl Portfolio {
 
 	pub fn segments(&self) -> Vec<Segment> {
 		let mut segments = [
-			Segment { segment_type: SegmentType::Liquid, lots: Vec::new() },
-			Segment { segment_type: SegmentType::Stable, lots: Vec::new() },
-			Segment { segment_type: SegmentType::Linear, lots: Vec::new() },
-			Segment { segment_type: SegmentType::Expo, lots: Vec::new() },
-			Segment { segment_type: SegmentType::Unknown, lots: Vec::new() },
+			Segment { segment_type: SegmentType::Liquid, drift_value: 0.0, allocation_value: 0.0, lots: Vec::new() },
+			Segment { segment_type: SegmentType::Stable, drift_value: 0.0, allocation_value: 0.0, lots: Vec::new() },
+			Segment { segment_type: SegmentType::Linear, drift_value: 0.0, allocation_value: 0.0, lots: Vec::new() },
+			Segment { segment_type: SegmentType::Expo, drift_value: 0.0, allocation_value: 0.0, lots: Vec::new() },
+			Segment { segment_type: SegmentType::Unknown, drift_value: 0.0, allocation_value: 0.0, lots: Vec::new() },
 		];
 		self.lots().into_iter().for_each(|it| {
-			let i = match it.segment {
-				SegmentType::Liquid => 0,
-				SegmentType::Stable => 1,
-				SegmentType::Linear => 2,
-				SegmentType::Expo => 3,
-				SegmentType::Unknown => 4,
-			};
+			let segment_type = &it.segment;
+			let i = Portfolio::index_of_type(segment_type);
 			segments[i].lots.push(it)
 		});
+		let segment_values = segments.iter().map(Segment::segment_value).collect::<Vec<_>>();
+		let full_value = segment_values.iter().sum();
+		allocate_amount(full_value).iter()
+			.for_each(|(segment, allocated_value)| {
+				let i = Self::index_of_type(segment);
+				let segment_value = segment_values[i];
+				let drift_value = segment_value - allocated_value;
+				segments[i].drift_value = drift_value;
+				segments[i].allocation_value = *allocated_value;
+			});
 		segments.to_vec()
 	}
+	fn index_of_type(segment_type: &SegmentType) -> usize {
+		match segment_type {
+			SegmentType::Liquid => 0,
+			SegmentType::Stable => 1,
+			SegmentType::Linear => 2,
+			SegmentType::Expo => 3,
+			SegmentType::Unknown => 4,
+		}
+	}
 }
+
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Segment {
 	segment_type: SegmentType,
+	drift_value: Amount,
+	allocation_value: Amount,
 	pub lots: Vec<Lot>,
 }
 
 impl Segment {
 	pub fn segment_type(&self) -> SegmentType { self.segment_type }
+	pub fn drift_value(&self) -> Amount { self.drift_value }
+	pub fn allocate_value(&self) -> Amount { self.allocation_value }
 	pub fn segment_value(&self) -> Amount {
 		self.lots.iter().fold(
 			0.0f64,
