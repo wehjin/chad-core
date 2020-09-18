@@ -4,33 +4,7 @@ use chad_core::{Lot, portfolio_link};
 use chad_core::prelude::*;
 
 #[test]
-fn it_works() {
-	let link = portfolio_link();
-	let tsla = AssetCode::Common("TSLA".to_string());
-	let custodian = "robinhood".to_string();
-	link.assign_asset(&tsla, SegmentType::Expo);
-	link.price_asset(&tsla, 2000.0);
-	link.update_lot(2000, &tsla, 10.0, &custodian, 300.0);
-	let portfolio = link.latest_portfolio();
-	assert_eq!(portfolio.lots(), vec![
-		Lot {
-			lot_id: 2000,
-			asset_code: tsla.clone(),
-			share_count: 10.0,
-			custodian: custodian.clone(),
-			share_price: 300.0,
-			segment: SegmentType::Expo,
-		}
-	]);
-	let segments = portfolio.segment_reports();
-	let values = segments.iter().map(SegmentReport::segment_value).collect::<Vec<_>>();
-	assert_eq!(values, vec![0.0, 0.0, 0.0, 3000.0, 0.0]);
-	let types = segments.iter().map(SegmentReport::segment_type).collect::<Vec<_>>();
-	assert_eq!(types, vec![SegmentType::Liquid, SegmentType::Stable, SegmentType::Linear, SegmentType::Expo, SegmentType::Unknown])
-}
-
-#[test]
-fn portfolio_computes_segment_drift_values() {
+fn portfolio_computes_drift_values() {
 	let link = portfolio_link();
 	let expo_asset = AssetCode::Common("EXPO".to_string());
 	let linear_asset = AssetCode::Common("LINEAR".to_string());
@@ -46,7 +20,7 @@ fn portfolio_computes_segment_drift_values() {
 	link.update_lot(12, &stable_asset, 1.0, &custodian, 0.097);
 	link.update_lot(13, &liquid_asset, 1.0, &custodian, 0.063);
 	let portfolio = link.latest_portfolio();
-	let segments = portfolio.segment_reports();
+	let segments = portfolio.segments();
 	let drift_values = segments.iter()
 		.map(|it| (it.drift_value() * 1000.0) as i64)
 		.collect::<Vec<_>>();
@@ -55,4 +29,50 @@ fn portfolio_computes_segment_drift_values() {
 		.map(|it| (it.allocate_value() * 1000.0) as i64)
 		.collect::<Vec<_>>();
 	assert_eq!(allocation_values, vec![64, 96, 240, 600, 0])
+}
+
+#[test]
+fn links_set_asset_prices() {
+	let link = portfolio_link();
+	let tsla = AssetCode::Common("TSLA".to_string());
+	let custodian = "robinhood".to_string();
+	link.update_lot(2000, &tsla, 10.0, &custodian, 1.0);
+	link.price_asset(&tsla, 2.0);
+	let portfolio = link.latest_portfolio();
+	assert_eq!(20.0, portfolio.currency_value());
+}
+
+#[test]
+fn portfolio_produces_lots() {
+	let link = portfolio_link();
+	let tsla = AssetCode::Common("TSLA".to_string());
+	let custodian = "robinhood".to_string();
+	link.assign_asset(&tsla, SegmentType::Expo);
+	link.update_lot(2000, &tsla, 10.0, &custodian, 300.0);
+	let portfolio = link.latest_portfolio();
+	assert_eq!(portfolio.lots(), vec![
+		Lot {
+			lot_id: 2000,
+			asset_code: tsla.clone(),
+			share_count: 10.0,
+			custodian: custodian.clone(),
+			share_price: 300.0,
+			segment: SegmentType::Expo,
+		}
+	]);
+}
+
+#[test]
+fn portfolio_produces_segments() {
+	let link = portfolio_link();
+	let tsla = AssetCode::Common("TSLA".to_string());
+	let custodian = "robinhood".to_string();
+	link.assign_asset(&tsla, SegmentType::Expo);
+	link.update_lot(2000, &tsla, 10.0, &custodian, 300.0);
+	let portfolio = link.latest_portfolio();
+	let segments = portfolio.segments();
+	let values = segments.iter().map(Segment::segment_value).collect::<Vec<_>>();
+	assert_eq!(values, vec![0.0, 0.0, 0.0, 3000.0, 0.0]);
+	let types = segments.iter().map(Segment::segment_type).collect::<Vec<_>>();
+	assert_eq!(types, vec![SegmentType::Liquid, SegmentType::Stable, SegmentType::Linear, SegmentType::Expo, SegmentType::Unknown])
 }
