@@ -1,11 +1,11 @@
 extern crate chad_core;
 
-use chad_core::{Lot, portfolio_link};
+use chad_core::Lot;
 use chad_core::prelude::*;
 
 #[test]
 fn portfolio_computes_drift_values() {
-	let link = portfolio_link();
+	let link = chad_core::connect();
 	let expo_asset = AssetCode::Common("EXPO".to_string());
 	let linear_asset = AssetCode::Common("LINEAR".to_string());
 	let stable_asset = AssetCode::Common("STABLE".to_string());
@@ -33,7 +33,7 @@ fn portfolio_computes_drift_values() {
 
 #[test]
 fn links_set_asset_prices() {
-	let link = portfolio_link();
+	let link = chad_core::connect();
 	let tsla = AssetCode::Common("TSLA".to_string());
 	let custodian = "robinhood".to_string();
 	link.update_lot(2000, &tsla, 10.0, &custodian, 1.0);
@@ -44,7 +44,7 @@ fn links_set_asset_prices() {
 
 #[test]
 fn link_assigns_assets() {
-	let link = portfolio_link();
+	let link = chad_core::connect();
 	let tsla = AssetCode::Common("TSLA".to_string());
 	let custodian = "robinhood".to_string();
 	link.update_lot(2000, &tsla, 10.0, &custodian, 300.0);
@@ -57,7 +57,7 @@ fn link_assigns_assets() {
 
 #[test]
 fn link_updates_lots() {
-	let link = portfolio_link();
+	let link = chad_core::connect();
 	let tsla = AssetCode::Common("TSLA".to_string());
 	let custodian = "robinhood".to_string();
 	link.update_lot(2000, &tsla, 10.0, &custodian, 300.0);
@@ -76,7 +76,7 @@ fn link_updates_lots() {
 
 #[test]
 fn portfolio_produces_segments() {
-	let link = portfolio_link();
+	let link = chad_core::connect();
 	let tsla = AssetCode::Common("TSLA".to_string());
 	let custodian = "robinhood".to_string();
 	link.assign_asset(&tsla, SegmentType::Expo);
