@@ -22,10 +22,10 @@ fn it_works() {
 			segment: SegmentType::Expo,
 		}
 	]);
-	let segments = portfolio.segments();
-	let values = segments.iter().map(Segment::segment_value).collect::<Vec<_>>();
+	let segments = portfolio.segment_reports();
+	let values = segments.iter().map(SegmentReport::segment_value).collect::<Vec<_>>();
 	assert_eq!(values, vec![0.0, 0.0, 0.0, 3000.0, 0.0]);
-	let types = segments.iter().map(Segment::segment_type).collect::<Vec<_>>();
+	let types = segments.iter().map(SegmentReport::segment_type).collect::<Vec<_>>();
 	assert_eq!(types, vec![SegmentType::Liquid, SegmentType::Stable, SegmentType::Linear, SegmentType::Expo, SegmentType::Unknown])
 }
 
@@ -46,7 +46,7 @@ fn portfolio_computes_segment_drift_values() {
 	link.update_lot(12, &stable_asset, 1.0, &custodian, 0.097);
 	link.update_lot(13, &liquid_asset, 1.0, &custodian, 0.063);
 	let portfolio = link.latest_portfolio();
-	let segments = portfolio.segments();
+	let segments = portfolio.segment_reports();
 	let drift_values = segments.iter()
 		.map(|it| (it.drift_value() * 1000.0) as i64)
 		.collect::<Vec<_>>();

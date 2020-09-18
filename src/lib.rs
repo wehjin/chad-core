@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender};
 use std::thread;
 
-pub use portfolio::{Lot, Portfolio, Segment};
+pub use portfolio::{Lot, Portfolio, SegmentReport};
 use prelude::*;
 
 use crate::LinkMsg::{AssignAsset, RecentPortfolio, UpdateLot, UpdatePrice};

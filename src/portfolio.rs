@@ -19,20 +19,20 @@ impl Portfolio {
 		rx.recv().expect("Recv lots")
 	}
 
-	pub fn segments(&self) -> Vec<Segment> {
+	pub fn segment_reports(&self) -> Vec<SegmentReport> {
 		let mut segments = [
-			Segment { segment_type: SegmentType::Liquid, drift_value: 0.0, allocation_value: 0.0, lots: Vec::new() },
-			Segment { segment_type: SegmentType::Stable, drift_value: 0.0, allocation_value: 0.0, lots: Vec::new() },
-			Segment { segment_type: SegmentType::Linear, drift_value: 0.0, allocation_value: 0.0, lots: Vec::new() },
-			Segment { segment_type: SegmentType::Expo, drift_value: 0.0, allocation_value: 0.0, lots: Vec::new() },
-			Segment { segment_type: SegmentType::Unknown, drift_value: 0.0, allocation_value: 0.0, lots: Vec::new() },
+			SegmentReport { segment_type: SegmentType::Liquid, drift_value: 0.0, allocation_value: 0.0, lots: Vec::new() },
+			SegmentReport { segment_type: SegmentType::Stable, drift_value: 0.0, allocation_value: 0.0, lots: Vec::new() },
+			SegmentReport { segment_type: SegmentType::Linear, drift_value: 0.0, allocation_value: 0.0, lots: Vec::new() },
+			SegmentReport { segment_type: SegmentType::Expo, drift_value: 0.0, allocation_value: 0.0, lots: Vec::new() },
+			SegmentReport { segment_type: SegmentType::Unknown, drift_value: 0.0, allocation_value: 0.0, lots: Vec::new() },
 		];
 		self.lots().into_iter().for_each(|it| {
 			let segment_type = &it.segment;
 			let i = Portfolio::index_of_type(segment_type);
 			segments[i].lots.push(it)
 		});
-		let segment_values = segments.iter().map(Segment::segment_value).collect::<Vec<_>>();
+		let segment_values = segments.iter().map(SegmentReport::segment_value).collect::<Vec<_>>();
 		let full_value = segment_values.iter().sum();
 		allocate_amount(full_value).iter()
 			.for_each(|(segment, allocated_value)| {
@@ -57,14 +57,14 @@ impl Portfolio {
 
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct Segment {
+pub struct SegmentReport {
 	segment_type: SegmentType,
 	drift_value: Amount,
 	allocation_value: Amount,
 	pub lots: Vec<Lot>,
 }
 
-impl Segment {
+impl SegmentReport {
 	pub fn segment_type(&self) -> SegmentType { self.segment_type }
 	pub fn drift_value(&self) -> Amount { self.drift_value }
 	pub fn allocate_value(&self) -> Amount { self.allocation_value }

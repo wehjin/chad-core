@@ -1,4 +1,4 @@
-pub use crate::{Lot, Portfolio, Segment, SegmentType};
+pub use crate::{Lot, Portfolio, SegmentReport, SegmentType};
 
 pub type Amount = f64;
 
