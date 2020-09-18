@@ -1,39 +1,72 @@
-use SegmentType::*;
+use std::sync::mpsc::{channel, Sender};
 
-use crate::prelude::*;
+use crate::prelude::{Amount, AssetCode, Custodian, LotId, SegmentType};
 
-struct MemSegment {
+pub(crate) enum PortfolioMsg {
+	Lots(Sender<Vec<Lot>>)
+}
+
+
+pub struct Portfolio {
+	pub(crate) tx: Sender<PortfolioMsg>
+}
+
+impl Portfolio {
+	pub fn lots(&self) -> Vec<Lot> {
+		let (tx, rx) = channel();
+		self.tx.send(PortfolioMsg::Lots(tx)).expect("Request Lots");
+		rx.recv().expect("Recv lots")
+	}
+
+	pub fn segments(&self) -> Vec<Segment> {
+		let mut segments = [
+			Segment { segment_type: SegmentType::Liquid, lots: Vec::new() },
+			Segment { segment_type: SegmentType::Stable, lots: Vec::new() },
+			Segment { segment_type: SegmentType::Linear, lots: Vec::new() },
+			Segment { segment_type: SegmentType::Expo, lots: Vec::new() },
+			Segment { segment_type: SegmentType::Unknown, lots: Vec::new() },
+		];
+		self.lots().into_iter().for_each(|it| {
+			let i = match it.segment {
+				SegmentType::Liquid => 0,
+				SegmentType::Stable => 1,
+				SegmentType::Linear => 2,
+				SegmentType::Expo => 3,
+				SegmentType::Unknown => 4,
+			};
+			segments[i].lots.push(it)
+		});
+		segments.to_vec()
+	}
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct Segment {
 	segment_type: SegmentType,
-	name: String,
+	pub lots: Vec<Lot>,
 }
 
-impl Segment for MemSegment {
-	fn name(&self) -> &str { &self.name }
-	fn asset_type(&self) -> &SegmentType { &self.segment_type }
-}
-
-struct MemPortfolio {
-	segments: Vec<MemSegment>,
-}
-
-impl Portfolio for MemPortfolio {
-	fn segment(&self, segment_type: SegmentType) -> &dyn Segment {
-		match segment_type {
-			Liquid => &self.segments[0],
-			Stable => &self.segments[1],
-			Linear => &self.segments[2],
-			Expo => &self.segments[3]
-		}
+impl Segment {
+	pub fn segment_type(&self) -> SegmentType { self.segment_type }
+	pub fn segment_value(&self) -> Amount {
+		self.lots.iter().fold(
+			0.0f64,
+			|sum, next| sum + next.currency_value(),
+		)
 	}
 }
 
-pub fn new() -> impl Portfolio {
-	MemPortfolio {
-		segments: vec![
-			MemSegment { segment_type: Liquid, name: "Liquid".to_string() },
-			MemSegment { segment_type: Stable, name: "Stable".to_string() },
-			MemSegment { segment_type: Linear, name: "Linear".to_string() },
-			MemSegment { segment_type: Expo, name: "Expo".to_string() }
-		],
-	}
+#[derive(Clone, PartialEq, Debug)]
+pub struct Lot {
+	pub lot_id: LotId,
+	pub asset_code: AssetCode,
+	pub share_count: Amount,
+	pub custodian: Custodian,
+	pub share_price: Amount,
+	pub segment: SegmentType,
 }
+
+impl Lot {
+	pub fn currency_value(&self) -> Amount { self.share_count * self.share_price }
+}
+
