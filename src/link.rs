@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::path::Path;
 use std::sync::mpsc::{channel, Sender};
 use std::thread;
@@ -95,13 +96,13 @@ fn lot_id_from_object_id(object_id: &ObjectId) -> LotId {
 	}
 }
 
-pub fn connect_tmp() -> impl Link {
+pub fn connect_tmp() -> impl Link + Clone + Debug + Send + 'static {
 	let mut folder = std::env::temp_dir();
 	folder.push(format!("chad-core-{}", rand::random::<u32>()));
 	connect(&folder)
 }
 
-pub fn connect(data_dir: &Path) -> impl Link {
+pub fn connect(data_dir: &Path) -> impl Link + Clone + Debug + Send + 'static {
 	let echo = Echo::connect("link-data", data_dir);
 	let (tx, rx) = channel();
 	thread::spawn(move || {
@@ -184,7 +185,10 @@ pub fn connect(data_dir: &Path) -> impl Link {
 	SenderLink { tx }
 }
 
-struct SenderLink { tx: Sender<LinkMsg> }
+#[derive(Clone, Debug)]
+struct SenderLink {
+	tx: Sender<LinkMsg>
+}
 
 impl Link for SenderLink {
 	fn assign_asset(&self, asset_code: &AssetCode, segment_type: SegmentType) {
