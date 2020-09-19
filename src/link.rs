@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender};
 use std::thread;
 
+use echo_lib::{Echo, ObjectId, Point, Target};
+
 use LinkMsg::{AssignAsset, RecentPortfolio, UpdateLot, UpdatePrice};
 
 use crate::{Amount, AssetCode, Custodian, Lot, LotId, Portfolio, SegmentType};
@@ -28,16 +30,52 @@ enum LinkMsg {
 	RecentPortfolio(Sender<Sender<PortfolioMsg>>),
 }
 
+#[derive(Clone, PartialEq, Debug)]
+struct LotRecord {
+	pub asset_code: AssetCode,
+	pub share_count: Amount,
+	pub custodian: Custodian,
+}
+
+const ATTR_ASSET_TYPE: Point = Point::Static { aspect: "Asset", name: "Type" };
+const ATTR_ASSET_PRICE: Point = Point::Static { aspect: "Asset", name: "Price" };
+const ATTR_LOT_ASSET: Point = Point::Static { aspect: "Lot", name: "Asset" };
+const ATTR_LOT_SHARES: Point = Point::Static { aspect: "Lot", name: "Shares" };
+const ATTR_LOT_CUSTODIAN: Point = Point::Static { aspect: "Lot", name: "Custodian" };
+
+impl AssetCode {
+	fn to_object_id(&self) -> ObjectId {
+		match self {
+			AssetCode::Common(symbol) => ObjectId::String(format!("asset-code:common:{}", symbol)),
+			AssetCode::Custom(symbol) => ObjectId::String(format!("asset-code:custom:{}", symbol))
+		}
+	}
+}
+
+impl SegmentType {
+	fn to_target(&self) -> Target { Target::Number(self.default_index() as u64) }
+	fn from_target(target: Option<Target>) -> Self {
+		let known_types = Self::known_types();
+		let i = if let Some(Target::Number(n)) = target { n as usize } else { known_types.len() };
+		if i < known_types.len() { known_types[i] } else { SegmentType::Unknown }
+	}
+}
+
 pub fn connect() -> impl Link {
+	let mut folder = std::env::temp_dir();
+	folder.push(format!("chad-core-{}", rand::random::<u32>()));
+	let echo = Echo::connect("link", &folder);
 	let (tx, rx) = channel();
 	thread::spawn(move || {
-		let mut assignments = HashMap::new();
-		let mut lots = HashMap::new();
 		let mut prices = HashMap::new();
+		let mut lots = HashMap::new();
 		for msg in rx {
 			match msg {
 				AssignAsset(asset_code, segment_type) => {
-					assignments.insert(asset_code, segment_type);
+					echo.write(|scope| {
+						let object_id = asset_code.to_object_id();
+						scope.write_object_properties(&object_id, vec![(&ATTR_ASSET_TYPE, segment_type.to_target())])
+					}).expect("Write AssignAsset");
 				}
 				UpdateLot { lot_id, asset_code, share_count, custodian, share_price } => {
 					prices.insert(asset_code.clone(), share_price);
@@ -50,20 +88,26 @@ pub fn connect() -> impl Link {
 				RecentPortfolio(response) => {
 					let (tx, rx) = channel();
 					thread::spawn({
-						let assignments = assignments.clone();
+						let chamber = echo.chamber().expect("Chamber from echo");
 						let lots = lots.clone();
 						let prices = prices.clone();
 						move || {
 							for msg in rx {
 								match msg {
 									PortfolioMsg::Lots(reply) => {
-										let lots = lots.iter().map(|(lot_id, record)| Lot {
-											lot_id: *lot_id,
-											asset_code: record.asset_code.to_owned(),
-											share_count: record.share_count.to_owned(),
-											custodian: record.custodian.to_owned(),
-											share_price: *prices.get(&record.asset_code).unwrap_or(&1.0),
-											segment: *assignments.get(&record.asset_code).unwrap_or(&SegmentType::Unknown),
+										let lots = lots.iter().map(|(lot_id, record)| {
+											Lot {
+												lot_id: *lot_id,
+												asset_code: record.asset_code.to_owned(),
+												share_count: record.share_count.to_owned(),
+												custodian: record.custodian.to_owned(),
+												share_price: *prices.get(&record.asset_code).unwrap_or(&1.0),
+												segment: {
+													let object_id = record.asset_code.to_object_id();
+													let target = chamber.target_at_object_point_or_none(&object_id, &ATTR_ASSET_TYPE);
+													SegmentType::from_target(target)
+												},
+											}
 										}).collect();
 										reply.send(lots).expect("Reply to Lots");
 									}
@@ -106,11 +150,4 @@ impl Link for SenderLink {
 		let tx = rx.recv().expect("Recv RecentPortfolio");
 		Portfolio { tx }
 	}
-}
-
-#[derive(Clone, PartialEq, Debug)]
-struct LotRecord {
-	pub asset_code: AssetCode,
-	pub share_count: Amount,
-	pub custodian: Custodian,
 }

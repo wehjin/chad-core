@@ -1,3 +1,6 @@
+extern crate echo_lib;
+extern crate rand;
+
 pub use link::*;
 pub use portfolio::{Lot, Portfolio, Segment};
 
@@ -42,6 +45,9 @@ impl SegmentType {
 			SegmentType::Expo => 0.6f64,
 			SegmentType::Unknown => 0.0f64,
 		}
+	}
+	pub fn known_types() -> Vec<SegmentType> {
+		vec![SegmentType::Liquid, SegmentType::Stable, SegmentType::Linear, SegmentType::Expo]
 	}
 	pub fn default_index(&self) -> usize {
 		match self {
