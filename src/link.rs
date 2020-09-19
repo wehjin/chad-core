@@ -11,11 +11,34 @@ use crate::{Amount, AssetCode, Custodian, Lot, LotId, Portfolio, SegmentType};
 use crate::portfolio::PortfolioMsg;
 
 /// Top level link to a portfolio.
-pub trait Link {
-	fn assign_asset(&self, asset_code: &AssetCode, segment_type: SegmentType);
-	fn update_lot(&self, lot_id: LotId, asset_code: &AssetCode, share_count: Amount, custodian: &Custodian, share_price: Amount);
-	fn price_asset(&self, asset_code: &AssetCode, price: Amount);
-	fn latest_portfolio(&self) -> Portfolio;
+#[derive(Clone, Debug)]
+pub struct Link { tx: Sender<LinkMsg> }
+
+impl Link {
+	pub fn assign_asset(&self, asset_code: &AssetCode, segment_type: SegmentType) {
+		self.tx.send(AssignAsset(asset_code.clone(), segment_type)).expect("AssignAsset");
+	}
+
+	pub fn update_lot(&self, lot_id: LotId, asset_code: &AssetCode, share_count: Amount, custodian: &Custodian, share_price: Amount) {
+		self.tx.send(UpdateLot {
+			lot_id,
+			asset_code: asset_code.to_owned(),
+			share_count,
+			custodian: custodian.to_owned(),
+			share_price,
+		}).expect("UpdateLot");
+	}
+
+	pub fn price_asset(&self, asset_code: &AssetCode, price: Amount) {
+		self.tx.send(UpdatePrice(asset_code.to_owned(), price)).expect("UpdatePrice");
+	}
+
+	pub fn latest_portfolio(&self) -> Portfolio {
+		let (tx, rx) = channel();
+		self.tx.send(RecentPortfolio(tx)).expect("RecentPortfolio");
+		let tx = rx.recv().expect("Recv RecentPortfolio");
+		Portfolio { tx }
+	}
 }
 
 enum LinkMsg {
@@ -96,13 +119,13 @@ fn lot_id_from_object_id(object_id: &ObjectId) -> LotId {
 	}
 }
 
-pub fn connect_tmp() -> impl Link + Clone + Debug + Send + 'static {
+pub fn connect_tmp() -> Link {
 	let mut folder = std::env::temp_dir();
 	folder.push(format!("chad-core-{}", rand::random::<u32>()));
 	connect(&folder)
 }
 
-pub fn connect(data_dir: &Path) -> impl Link + Clone + Debug + Send + 'static {
+pub fn connect(data_dir: &Path) -> Link {
 	let echo = Echo::connect("link-data", data_dir);
 	let (tx, rx) = channel();
 	thread::spawn(move || {
@@ -182,37 +205,6 @@ pub fn connect(data_dir: &Path) -> impl Link + Clone + Debug + Send + 'static {
 			}
 		}
 	});
-	SenderLink { tx }
+	Link { tx }
 }
 
-#[derive(Clone, Debug)]
-struct SenderLink {
-	tx: Sender<LinkMsg>
-}
-
-impl Link for SenderLink {
-	fn assign_asset(&self, asset_code: &AssetCode, segment_type: SegmentType) {
-		self.tx.send(AssignAsset(asset_code.clone(), segment_type)).expect("AssignAsset");
-	}
-
-	fn update_lot(&self, lot_id: LotId, asset_code: &AssetCode, share_count: Amount, custodian: &Custodian, share_price: Amount) {
-		self.tx.send(UpdateLot {
-			lot_id,
-			asset_code: asset_code.to_owned(),
-			share_count,
-			custodian: custodian.to_owned(),
-			share_price,
-		}).expect("UpdateLot");
-	}
-
-	fn price_asset(&self, asset_code: &AssetCode, price: Amount) {
-		self.tx.send(UpdatePrice(asset_code.to_owned(), price)).expect("UpdatePrice");
-	}
-
-	fn latest_portfolio(&self) -> Portfolio {
-		let (tx, rx) = channel();
-		self.tx.send(RecentPortfolio(tx)).expect("RecentPortfolio");
-		let tx = rx.recv().expect("Recv RecentPortfolio");
-		Portfolio { tx }
-	}
-}

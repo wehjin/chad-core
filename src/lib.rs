@@ -4,13 +4,14 @@ extern crate rand;
 pub use link::*;
 pub use portfolio::{Lot, Portfolio, Segment};
 
+mod portfolio;
+mod link;
+
 pub mod prelude {
 	pub use crate::{Amount, AssetCode, Custodian, Link, Lot, LotId, Portfolio, Segment, SegmentType};
 }
 
-mod portfolio;
-mod link;
-
+/// A quantity of something.
 pub type Amount = f64;
 
 /// Identifier for asset lots.
