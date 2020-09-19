@@ -61,13 +61,24 @@ impl SegmentType {
 	}
 }
 
+fn amount_to_target(amount: Amount) -> Target {
+	Target::String(format!("{}", amount))
+}
+
+fn amount_from_target(target: Option<Target>, fallback: Amount) -> Amount {
+	if let Some(Target::String(s)) = target {
+		s.parse::<f64>().unwrap_or(fallback)
+	} else {
+		fallback
+	}
+}
+
 pub fn connect() -> impl Link {
 	let mut folder = std::env::temp_dir();
 	folder.push(format!("chad-core-{}", rand::random::<u32>()));
 	let echo = Echo::connect("link", &folder);
 	let (tx, rx) = channel();
 	thread::spawn(move || {
-		let mut prices = HashMap::new();
 		let mut lots = HashMap::new();
 		for msg in rx {
 			match msg {
@@ -78,19 +89,24 @@ pub fn connect() -> impl Link {
 					}).expect("Write AssignAsset");
 				}
 				UpdateLot { lot_id, asset_code, share_count, custodian, share_price } => {
-					prices.insert(asset_code.clone(), share_price);
+					echo.write(|scope| {
+						let object_id = asset_code.to_object_id();
+						scope.write_object_properties(&object_id, vec![(&ATTR_ASSET_PRICE, amount_to_target(share_price))])
+					}).expect("Write UpdateLot");
 					let record = LotRecord { asset_code, share_count, custodian };
 					lots.insert(lot_id, record);
 				}
 				UpdatePrice(asset_code, price) => {
-					prices.insert(asset_code, price);
+					echo.write(|scope| {
+						let object_id = asset_code.to_object_id();
+						scope.write_object_properties(&object_id, vec![(&ATTR_ASSET_PRICE, amount_to_target(price))])
+					}).expect("Write UpdatePrice");
 				}
 				RecentPortfolio(response) => {
 					let (tx, rx) = channel();
 					thread::spawn({
 						let chamber = echo.chamber().expect("Chamber from echo");
 						let lots = lots.clone();
-						let prices = prices.clone();
 						move || {
 							for msg in rx {
 								match msg {
@@ -101,7 +117,11 @@ pub fn connect() -> impl Link {
 												asset_code: record.asset_code.to_owned(),
 												share_count: record.share_count.to_owned(),
 												custodian: record.custodian.to_owned(),
-												share_price: *prices.get(&record.asset_code).unwrap_or(&1.0),
+												share_price: {
+													let object_id = record.asset_code.to_object_id();
+													let target = chamber.target_at_object_point_or_none(&object_id, &ATTR_ASSET_PRICE);
+													amount_from_target(target, 1.0)
+												},
 												segment: {
 													let object_id = record.asset_code.to_object_id();
 													let target = chamber.target_at_object_point_or_none(&object_id, &ATTR_ASSET_TYPE);
