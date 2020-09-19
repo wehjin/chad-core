@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::path::Path;
 use std::sync::mpsc::{channel, Sender};
 use std::thread;
 
@@ -30,13 +30,6 @@ enum LinkMsg {
 	RecentPortfolio(Sender<Sender<PortfolioMsg>>),
 }
 
-#[derive(Clone, PartialEq, Debug)]
-struct LotRecord {
-	pub asset_code: AssetCode,
-	pub share_count: Amount,
-	pub custodian: Custodian,
-}
-
 const ATTR_ASSET_TYPE: Point = Point::Static { aspect: "Asset", name: "Type" };
 const ATTR_ASSET_PRICE: Point = Point::Static { aspect: "Asset", name: "Price" };
 const ATTR_LOT_ASSET: Point = Point::Static { aspect: "Lot", name: "Asset" };
@@ -48,6 +41,25 @@ impl AssetCode {
 		match self {
 			AssetCode::Common(symbol) => ObjectId::String(format!("asset-code:common:{}", symbol)),
 			AssetCode::Custom(symbol) => ObjectId::String(format!("asset-code:custom:{}", symbol))
+		}
+	}
+	fn to_target(&self) -> Target {
+		match self {
+			AssetCode::Common(sym) => Target::String(format!("common:{}", sym)),
+			AssetCode::Custom(sym) => Target::String(format!("custom:{}", sym)),
+		}
+	}
+	fn from_target(target: Option<&Target>) -> Self {
+		if let Some(&Target::String(ref s)) = target {
+			if s.starts_with("common:") {
+				AssetCode::Common(s["common:".len()..].to_string())
+			} else if s.starts_with("custom:") {
+				AssetCode::Custom(s["custom:".len()..].to_string())
+			} else {
+				AssetCode::Custom("UNKNOWN".to_string())
+			}
+		} else {
+			AssetCode::Custom("UNKNOWN".to_string())
 		}
 	}
 }
@@ -73,13 +85,26 @@ fn amount_from_target(target: Option<Target>, fallback: Amount) -> Amount {
 	}
 }
 
-pub fn connect() -> impl Link {
+fn lot_id_to_object_id(lot_id: LotId) -> ObjectId { ObjectId::String(format!("lot-{}", lot_id)) }
+
+fn lot_id_from_object_id(object_id: &ObjectId) -> LotId {
+	if let ObjectId::String(s) = object_id {
+		s["lot-".len()..].parse::<LotId>().unwrap_or(0)
+	} else {
+		LotId::from(0 as LotId)
+	}
+}
+
+pub fn connect_tmp() -> impl Link {
 	let mut folder = std::env::temp_dir();
 	folder.push(format!("chad-core-{}", rand::random::<u32>()));
-	let echo = Echo::connect("link", &folder);
+	connect(&folder)
+}
+
+pub fn connect(data_dir: &Path) -> impl Link {
+	let echo = Echo::connect("link-data", data_dir);
 	let (tx, rx) = channel();
 	thread::spawn(move || {
-		let mut lots = HashMap::new();
 		for msg in rx {
 			match msg {
 				AssignAsset(asset_code, segment_type) => {
@@ -90,11 +115,19 @@ pub fn connect() -> impl Link {
 				}
 				UpdateLot { lot_id, asset_code, share_count, custodian, share_price } => {
 					echo.write(|scope| {
-						let object_id = asset_code.to_object_id();
-						scope.write_object_properties(&object_id, vec![(&ATTR_ASSET_PRICE, amount_to_target(share_price))])
+						{
+							let object_id = asset_code.to_object_id();
+							scope.write_object_properties(&object_id, vec![(&ATTR_ASSET_PRICE, amount_to_target(share_price))])
+						}
+						{
+							let object_id = lot_id_to_object_id(lot_id);
+							scope.write_object_properties(&object_id, vec![
+								(&ATTR_LOT_ASSET, asset_code.to_target()),
+								(&ATTR_LOT_CUSTODIAN, Target::String(custodian.to_string())),
+								(&ATTR_LOT_SHARES, amount_to_target(share_count)),
+							]);
+						}
 					}).expect("Write UpdateLot");
-					let record = LotRecord { asset_code, share_count, custodian };
-					lots.insert(lot_id, record);
 				}
 				UpdatePrice(asset_code, price) => {
 					echo.write(|scope| {
@@ -103,34 +136,42 @@ pub fn connect() -> impl Link {
 					}).expect("Write UpdatePrice");
 				}
 				RecentPortfolio(response) => {
+					let chamber = echo.chamber().expect("Chamber from echo");
 					let (tx, rx) = channel();
-					thread::spawn({
-						let chamber = echo.chamber().expect("Chamber from echo");
-						let lots = lots.clone();
-						move || {
-							for msg in rx {
-								match msg {
-									PortfolioMsg::Lots(reply) => {
-										let lots = lots.iter().map(|(lot_id, record)| {
-											Lot {
-												lot_id: *lot_id,
-												asset_code: record.asset_code.to_owned(),
-												share_count: record.share_count.to_owned(),
-												custodian: record.custodian.to_owned(),
-												share_price: {
-													let object_id = record.asset_code.to_object_id();
-													let target = chamber.target_at_object_point_or_none(&object_id, &ATTR_ASSET_PRICE);
-													amount_from_target(target, 1.0)
-												},
-												segment: {
-													let object_id = record.asset_code.to_object_id();
-													let target = chamber.target_at_object_point_or_none(&object_id, &ATTR_ASSET_TYPE);
-													SegmentType::from_target(target)
-												},
-											}
-										}).collect();
-										reply.send(lots).expect("Reply to Lots");
-									}
+					thread::spawn(move || {
+						for msg in rx {
+							match msg {
+								PortfolioMsg::Lots(reply) => {
+									let lot_object_ids = chamber.objects_with_point(&ATTR_LOT_SHARES).expect("Read lot object_ids");
+									let lots = lot_object_ids.iter().map(|object_id| {
+										let targets = chamber.targets_at_object_points(object_id, vec![
+											&ATTR_LOT_SHARES,
+											&ATTR_LOT_ASSET,
+											&ATTR_LOT_CUSTODIAN,
+										]);
+										let asset_code = AssetCode::from_target(targets.get(&ATTR_LOT_ASSET));
+										Lot {
+											lot_id: lot_id_from_object_id(object_id),
+											asset_code: asset_code.clone(),
+											share_count: amount_from_target(targets.get(&ATTR_LOT_SHARES).cloned(), 1.0),
+											custodian: if let Some(&Target::String(ref s)) = targets.get(&ATTR_LOT_CUSTODIAN) {
+												Custodian::from(s)
+											} else {
+												Custodian::from("sovereign")
+											},
+											share_price: {
+												let object_id = asset_code.to_object_id();
+												let target = chamber.target_at_object_point_or_none(&object_id, &ATTR_ASSET_PRICE);
+												amount_from_target(target, 1.0)
+											},
+											segment: {
+												let object_id = asset_code.to_object_id();
+												let target = chamber.target_at_object_point_or_none(&object_id, &ATTR_ASSET_TYPE);
+												SegmentType::from_target(target)
+											},
+										}
+									}).collect();
+									reply.send(lots).expect("Reply to Lots");
 								}
 							}
 						}
