@@ -21,10 +21,10 @@ impl StorageLink {
 		self.tx.send(AssignAsset(asset_code.clone(), segment_type)).expect("AssignAsset");
 	}
 
-	pub fn update_lot(&self, lot_id: LotId, asset_code: &AssetCode, share_count: Amount, custodian: &Custodian, share_price: Amount) {
+	pub fn update_lot(&self, lot_id: LotId, asset_code: &AssetCode, share_count: Amount, custodian: &Custodian) {
 		let asset_code = asset_code.to_owned();
 		let custodian = custodian.to_owned();
-		self.tx.send(UpdateLot { lot_id, asset_code, share_count, custodian, share_price }).expect("UpdateLot");
+		self.tx.send(UpdateLot { lot_id, asset_code, share_count, custodian }).expect("UpdateLot");
 	}
 
 	pub fn price_asset(&self, asset_code: &AssetCode, price: Amount) {
@@ -46,7 +46,6 @@ enum Msg {
 		asset_code: AssetCode,
 		share_count: Amount,
 		custodian: Custodian,
-		share_price: Amount,
 	},
 	UpdatePrice(AssetCode, Amount),
 	RecentPortfolio(Sender<Sender<PortfolioMsg>>),
@@ -180,20 +179,14 @@ pub fn connect_storage(data_dir: &Path) -> StorageLink {
 						scope.write_object_properties(&object_id, vec![(&ATTR_ASSET_TYPE, segment_type.to_target())])
 					}).expect("Write AssignAsset");
 				}
-				UpdateLot { lot_id, asset_code, share_count, custodian, share_price } => {
+				UpdateLot { lot_id, asset_code, share_count, custodian } => {
 					echo.write(|scope| {
-						{
-							let object_id = asset_code.to_object_id();
-							scope.write_object_properties(&object_id, vec![(&ATTR_ASSET_PRICE, amount_to_target(share_price))])
-						}
-						{
-							let object_id = lot_id_to_object_id(lot_id);
-							scope.write_object_properties(&object_id, vec![
-								(&ATTR_LOT_ASSET, asset_code.to_target()),
-								(&ATTR_LOT_CUSTODIAN, custodian.to_target()),
-								(&ATTR_LOT_SHARES, amount_to_target(share_count)),
-							]);
-						}
+						let object_id = lot_id_to_object_id(lot_id);
+						scope.write_object_properties(&object_id, vec![
+							(&ATTR_LOT_ASSET, asset_code.to_target()),
+							(&ATTR_LOT_CUSTODIAN, custodian.to_target()),
+							(&ATTR_LOT_SHARES, amount_to_target(share_count)),
+						]);
 					}).expect("Write UpdateLot");
 				}
 				UpdatePrice(asset_code, price) => {
