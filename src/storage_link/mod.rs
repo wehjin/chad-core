@@ -14,9 +14,9 @@ use crate::portfolio::lot::Lot;
 
 /// Top level link to a portfolio.
 #[derive(Clone, Debug)]
-pub struct DataLink { tx: Sender<Msg> }
+pub struct StorageLink { tx: Sender<Msg> }
 
-impl DataLink {
+impl StorageLink {
 	pub fn assign_asset(&self, asset_code: &AssetCode, segment_type: SegmentType) {
 		self.tx.send(AssignAsset(asset_code.clone(), segment_type)).expect("AssignAsset");
 	}
@@ -162,13 +162,13 @@ fn lot_id_from_object_id(object_id: &ObjectId) -> LotId {
 	}
 }
 
-pub fn connect_tmp() -> DataLink {
+pub fn connect_storage_tmp() -> StorageLink {
 	let mut folder = std::env::temp_dir();
 	folder.push(format!("chad-core-{}", rand::random::<u32>()));
-	connect(&folder)
+	connect_storage(&folder)
 }
 
-pub fn connect(data_dir: &Path) -> DataLink {
+pub fn connect_storage(data_dir: &Path) -> StorageLink {
 	let echo = Echo::connect("link-data", data_dir);
 	let (tx, rx) = channel();
 	thread::spawn(move || {
@@ -228,7 +228,7 @@ pub fn connect(data_dir: &Path) -> DataLink {
 			}
 		}
 	});
-	DataLink { tx }
+	StorageLink { tx }
 }
 
 fn read_prices(chamber: &Chamber) -> HashMap<AssetCode, Amount> {
