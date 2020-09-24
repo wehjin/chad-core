@@ -5,36 +5,71 @@ use std::thread;
 
 use echo_lib::{Chamber, Echo, ObjectId, Point, Target};
 
-pub fn connect_tmp() -> Sender<ChadAction> {
-	let mut path = std::env::temp_dir();
-	path.push(format!("{}", rand::random::<u32>()));
-	let (tx, rx) = channel::<ChadAction>();
-	thread::spawn(move || {
-		let echo = Echo::connect("chad", &path);
-		for action in rx {
-			handle_action(action, &echo)
-		}
-	});
-	tx
-}
-
 #[derive(Clone, Debug)]
-pub enum ChadAction {
+enum ChadAction {
 	AddSquad { id: u64, name: String, owner: u64 },
 	AddMember { squad_id: u64, symbol: String },
 	AddLot { id: u64, squad_id: u64, symbol: String, shares: f64, account: String },
-	Snap(Sender<Sender<SnapSearch>>),
+	Snap(Sender<Sender<SearchAction>>),
 }
 
 #[derive(Clone, Debug)]
-pub enum SnapSearch {}
+pub struct Chad { tx: Sender<ChadAction> }
+
+impl Chad {
+	pub fn connect_tmp() -> Self {
+		let mut path = std::env::temp_dir();
+		path.push(format!("{}", rand::random::<u32>()));
+		let echo = Echo::connect("chad", &path);
+		let (tx, rx) = channel::<ChadAction>();
+		thread::spawn(move || for action in rx {
+			handle_action(action, &echo)
+		});
+		Chad { tx }
+	}
+
+	pub fn add_squad(&self, id: u64, name: &str, owner: u64) {
+		self.tx.send(ChadAction::AddSquad { id, name: name.to_string(), owner }).expect("Send AddSquad");
+	}
+
+	pub fn snap(&self) -> Snap {
+		let (tx, rx) = channel();
+		self.tx.send(ChadAction::Snap(tx)).expect("Send Snap");
+		let sender = rx.recv().expect("Recv SnapSearch");
+		Snap { tx: sender }
+	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Squad {
+	pub id: u64,
+	pub name: String,
+	pub owner: u64,
+	pub members: Vec<u64>,
+}
 
 fn handle_action(action: ChadAction, echo: &Echo) {
 	match action {
 		ChadAction::AddSquad { id, name, owner } => add_squad(id, name, owner, echo),
 		ChadAction::AddMember { squad_id, symbol } => add_member(squad_id, symbol, echo),
 		ChadAction::AddLot { .. } => {}
-		ChadAction::Snap(_) => {}
+		ChadAction::Snap(reply) => {
+			let chamber = echo.chamber().expect("Snap chamber");
+			let (tx, rx) = channel();
+			thread::spawn(move || for action in rx {
+				handle_search(action, &chamber);
+			});
+			reply.send(tx).expect("Send Snap reply");
+		}
+	}
+}
+
+fn handle_search(search: SearchAction, chamber: &Chamber) {
+	match search {
+		SearchAction::Squads { owner, reply } => {
+			let squads = squads(owner, &chamber);
+			reply.send(squads).expect("Send Squads");
+		}
 	}
 }
 
@@ -76,6 +111,28 @@ fn add_member(squad_id: u64, symbol: String, echo: &Echo) {
 	}
 }
 
+fn squads(owner: u64, chamber: &Chamber) -> Vec<Squad> {
+	let squads_ids = chamber.objects_with_property(&SQUAD_OWNER, &Target::String(owner.to_string())).expect("Squad-ids");
+	squads_ids.into_iter().map(|object_id| {
+		let id = match &object_id {
+			ObjectId::Unit => panic!("Unexpected object_id"),
+			ObjectId::String(s) => s.parse::<u64>().expect("u64 in object-id"),
+		};
+		let targets = chamber.targets_at_object_points(
+			&object_id,
+			vec![&SQUAD_NAME, &SQUAD_MEMBERS],
+		);
+		let name = targets.get(&SQUAD_NAME).map(|it| it.as_str().to_owned()).unwrap_or_else(|| format!("Squad-{}", id));
+		let members = targets.get(&SQUAD_MEMBERS).map(|it| {
+			it.as_str()
+				.split(":")
+				.map(|it| it.parse::<u64>().expect("member-id"))
+				.collect::<Vec<_>>()
+		}).unwrap_or_else(|| Vec::new());
+		Squad { id, name, owner, members }
+	}).collect()
+}
+
 fn squad_members(squad_id: u64, chamber: &Chamber) -> Vec<u64> {
 	chamber.target_at_object_point_or_none(
 		&ObjectId::String(squad_id.to_string()),
@@ -96,3 +153,21 @@ const LOT_SQUAD: Point = Point::Static { aspect: "Lot", name: "squad" };
 const LOT_SYMBOL: Point = Point::Static { aspect: "Lot", name: "symbol" };
 const LOT_SHARES: Point = Point::Static { aspect: "Lot", name: "shares" };
 const LOT_ACCOUNT: Point = Point::Static { aspect: "Lot", name: "account" };
+
+
+#[derive(Clone, Debug)]
+enum SearchAction {
+	Squads { owner: u64, reply: Sender<Vec<Squad>> }
+}
+
+#[derive(Clone, Debug)]
+pub struct Snap { tx: Sender<SearchAction> }
+
+impl Snap {
+	pub fn squads(&self, owner: u64) -> Vec<Squad> {
+		let (tx, rx) = channel();
+		self.tx.send(SearchAction::Squads { owner, reply: tx }).expect("Send Squads search");
+		rx.recv().expect("Recv Squads reply")
+	}
+}
+
