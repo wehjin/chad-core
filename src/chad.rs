@@ -5,14 +5,14 @@ use std::thread;
 
 use echo_lib::{Chamber, Echo, ObjectId, Point, Target};
 
-use crate::core::{Squad, SquadMember};
+use crate::core::{Lot2, Squad, SquadMember};
 
 #[derive(Clone, Debug)]
 enum ChadAction {
+	Snap(Sender<Sender<SearchAction>>),
 	AddSquad { id: u64, name: String, owner: u64 },
 	AddMember { squad_id: u64, symbol: String },
-	AddLot { id: u64, squad_id: u64, symbol: String, shares: f64, account: String },
-	Snap(Sender<Sender<SearchAction>>),
+	AddLot { squad_id: u64, id: u64, symbol: String, shares: f64, account: String },
 }
 
 #[derive(Clone, Debug)]
@@ -46,13 +46,17 @@ impl Chad {
 		let action = ChadAction::AddMember { squad_id, symbol: symbol.to_string() };
 		self.tx.send(action).expect("Send AddMember");
 	}
+
+	pub fn add_lot(&self, squad_id: u64, id: u64, symbol: &str, account: &str, shares: f64) {
+		let account = account.to_string();
+		let symbol = symbol.to_string();
+		let action = ChadAction::AddLot { squad_id, id, symbol, shares, account };
+		self.tx.send(action).expect("Send AddLot");
+	}
 }
 
 fn handle_action(action: ChadAction, echo: &Echo) {
 	match action {
-		ChadAction::AddSquad { id, name, owner } => add_squad(id, name, owner, echo),
-		ChadAction::AddMember { squad_id, symbol } => add_member(squad_id, symbol, echo),
-		ChadAction::AddLot { .. } => {}
 		ChadAction::Snap(reply) => {
 			let chamber = echo.chamber().expect("Snap chamber");
 			let (tx, rx) = channel();
@@ -60,6 +64,20 @@ fn handle_action(action: ChadAction, echo: &Echo) {
 				handle_search(action, &chamber);
 			});
 			reply.send(tx).expect("Send Snap reply");
+		}
+		ChadAction::AddSquad { id, name, owner } => add_squad(id, name, owner, echo),
+		ChadAction::AddMember { squad_id, symbol } => add_member(squad_id, symbol, echo),
+		ChadAction::AddLot { squad_id, id, symbol, shares, account } => {
+			echo.write(|scope| {
+				let object_id = ObjectId::String(id.to_string());
+				let properties = vec![
+					(&LOT_ACCOUNT, Target::String(account.to_string())),
+					(&LOT_SHARES, Target::String(shares.to_string())),
+					(&LOT_SQUAD, Target::String(squad_id.to_string())),
+					(&LOT_SYMBOL, Target::String(symbol.to_string()))
+				];
+				scope.write_object_properties(&object_id, properties);
+			}).expect("Write AddLot");
 		}
 	}
 }
@@ -113,46 +131,69 @@ fn add_member(squad_id: u64, symbol: String, echo: &Echo) {
 
 fn squads(owner: u64, chamber: &Chamber) -> Vec<Squad> {
 	let squads_ids = chamber.objects_with_property(&SQUAD_OWNER, &Target::String(owner.to_string())).expect("Squad-ids");
-	squads_ids.into_iter().map(|object_id| {
-		let id = match &object_id {
-			ObjectId::Unit => panic!("Unexpected object_id"),
-			ObjectId::String(s) => s.parse::<u64>().expect("u64 in object-id"),
-		};
-		let targets = chamber.targets_at_object_points(
-			&object_id,
-			vec![&SQUAD_NAME, &SQUAD_MEMBERS],
-		);
-		let name = targets.get(&SQUAD_NAME).map(|it| it.as_str().to_owned()).unwrap_or_else(|| format!("Squad-{}", id));
-		let member_ids = targets.get(&SQUAD_MEMBERS).map(|it| {
-			it.as_str()
-				.split(":")
-				.map(|it| it.parse::<u64>().expect("member-id"))
-				.collect::<Vec<_>>()
-		}).unwrap_or_else(|| Vec::new());
-		let members = member_ids.into_iter().map(|member_id| {
-			let object_id = ObjectId::String(member_id.to_string());
-			let targets = chamber.targets_at_object_points(
-				&object_id,
-				vec![&MEMBER_SYMBOL, &MEMBER_SQUAD],
-			);
-			SquadMember {
-				squad_id: targets.get(&MEMBER_SQUAD).expect("Squad target").as_str().parse::<u64>().expect("u64"),
-				symbol: targets.get(&MEMBER_SYMBOL).expect("Symbol target").as_str().to_string(),
-			}
-		}).collect();
-		Squad { id, name, owner, members }
+	squads_ids.into_iter().map(|oid| {
+		let id = id(&oid);
+		let targets = chamber.targets_at_object_points(&oid, vec![&SQUAD_NAME, &SQUAD_MEMBERS]);
+		let name = targets.get(&SQUAD_NAME).map(string).unwrap_or_else(|| format!("Squad-{}", id));
+		let member_ids = targets.get(&SQUAD_MEMBERS).map(target_to_member_ids).unwrap_or_else(Vec::new);
+		let members = member_ids.into_iter().map(|member_id| squad_member(member_id, chamber)).collect();
+		let lots = lots(id, chamber);
+		Squad { id, name, owner, members, lots }
 	}).collect()
 }
 
+fn lots(squad_id: u64, chamber: &Chamber) -> Vec<Lot2> {
+	let object_ids = chamber.objects_with_property(&LOT_SQUAD, &Target::String(squad_id.to_string())).expect("lot objects");
+	object_ids.into_iter().map(|oid| {
+		let id = id(&oid);
+		let targets = chamber.targets_at_object_points(&oid, vec![&LOT_SQUAD, &LOT_SYMBOL, &LOT_SHARES, &LOT_ACCOUNT]);
+		let symbol = targets.get(&LOT_SYMBOL).map(string).unwrap_or_else(String::new);
+		let account = targets.get(&LOT_ACCOUNT).map(string).unwrap_or_else(String::new);
+		let shares = targets.get(&LOT_SHARES).map(shares).unwrap_or(0.0);
+		Lot2 { squad_id, id, symbol, account, shares }
+	}).collect()
+}
+
+fn shares(target: &Target) -> f64 {
+	target.as_str().parse().unwrap_or(0.0)
+}
+
+fn string(target: &Target) -> String {
+	target.as_str().to_string()
+}
+
+fn id(oid: &ObjectId) -> u64 {
+	match oid {
+		ObjectId::Unit => panic!("Unexpected ObjectId::Unit"),
+		ObjectId::String(ref s) => s.parse::<u64>().expect("s is u64"),
+	}
+}
+
+fn squad_member(member_id: u64, chamber: &Chamber) -> SquadMember {
+	let object_id = ObjectId::String(member_id.to_string());
+	let targets = chamber.targets_at_object_points(
+		&object_id,
+		vec![&MEMBER_SYMBOL, &MEMBER_SQUAD],
+	);
+	SquadMember {
+		squad_id: targets.get(&MEMBER_SQUAD).expect("Squad target").as_str().parse::<u64>().expect("u64"),
+		symbol: targets.get(&MEMBER_SYMBOL).expect("Symbol target").as_str().to_string(),
+	}
+}
+
 fn squad_members(squad_id: u64, chamber: &Chamber) -> Vec<u64> {
-	chamber.target_at_object_point_or_none(
+	let target = chamber.target_at_object_point_or_none(
 		&ObjectId::String(squad_id.to_string()),
 		&SQUAD_MEMBERS,
-	).map(|it| it.as_str()
+	);
+	target.map(|ref it| target_to_member_ids(it)).unwrap_or(Vec::new())
+}
+
+fn target_to_member_ids(target: &Target) -> Vec<u64> {
+	target.as_str()
 		.split(":")
 		.map(|it| it.parse::<u64>().expect("member-id"))
 		.collect::<Vec<_>>()
-	).unwrap_or(Vec::new())
 }
 
 const SQUAD_NAME: Point = Point::Static { aspect: "Squad", name: "name" };

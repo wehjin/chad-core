@@ -29,17 +29,26 @@ pub enum Account {
 /// Identifiers a Lot.
 pub type LotId = u64;
 
-
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Squad {
 	pub id: u64,
 	pub name: String,
 	pub owner: u64,
 	pub members: Vec<SquadMember>,
+	pub lots: Vec<Lot2>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SquadMember {
 	pub squad_id: u64,
 	pub symbol: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Lot2 {
+	pub squad_id: u64,
+	pub id: u64,
+	pub symbol: String,
+	pub account: String,
+	pub shares: f64,
 }

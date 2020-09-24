@@ -1,10 +1,13 @@
 use chad_core::chad::Chad;
-use chad_core::core::SquadMember;
+use chad_core::core::{Lot2, SquadMember};
 
 const OWNER: u64 = 1000;
 const SQUAD_ID: u64 = 2000;
 const SQUAD_NAME: &str = "Blue";
 const SYMBOL1: &str = "KO";
+const LOT_ID: u64 = 3000;
+const ACCOUNT1: &str = "main";
+const SHARES1: f64 = 10.0;
 
 #[test]
 fn add_squad_produces_a_squad_in_next_snap() {
@@ -27,4 +30,22 @@ fn add_member_appends_member_to_squad() {
 	let squad = squads.first().expect("First squad");
 	let member = squad.members.first().expect("First member");
 	assert_eq!(&SquadMember { squad_id: SQUAD_ID, symbol: SYMBOL1.to_string() }, member);
+}
+
+#[test]
+fn add_lot_registers_a_lot() {
+	let chad = Chad::connect_tmp();
+	chad.add_squad(SQUAD_ID, SQUAD_NAME, OWNER);
+	chad.add_member(SQUAD_ID, SYMBOL1);
+	chad.add_lot(SQUAD_ID, LOT_ID, SYMBOL1, ACCOUNT1, SHARES1);
+	let squads = chad.snap().squads(OWNER);
+	let squad = squads.first().expect("First squad");
+	let lots = squad.lots.first().expect("First lot");
+	assert_eq!(&Lot2 {
+		squad_id: SQUAD_ID,
+		id: LOT_ID,
+		symbol: SYMBOL1.to_string(),
+		account: ACCOUNT1.to_string(),
+		shares: SHARES1,
+	}, lots);
 }
