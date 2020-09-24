@@ -5,6 +5,8 @@ use std::thread;
 
 use echo_lib::{Chamber, Echo, ObjectId, Point, Target};
 
+use crate::core::{Squad, SquadMember};
+
 #[derive(Clone, Debug)]
 enum ChadAction {
 	AddSquad { id: u64, name: String, owner: u64 },
@@ -28,24 +30,22 @@ impl Chad {
 		Chad { tx }
 	}
 
-	pub fn add_squad(&self, id: u64, name: &str, owner: u64) {
-		self.tx.send(ChadAction::AddSquad { id, name: name.to_string(), owner }).expect("Send AddSquad");
-	}
-
 	pub fn snap(&self) -> Snap {
 		let (tx, rx) = channel();
 		self.tx.send(ChadAction::Snap(tx)).expect("Send Snap");
 		let sender = rx.recv().expect("Recv SnapSearch");
 		Snap { tx: sender }
 	}
-}
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Squad {
-	pub id: u64,
-	pub name: String,
-	pub owner: u64,
-	pub members: Vec<u64>,
+	pub fn add_squad(&self, id: u64, name: &str, owner: u64) {
+		let action = ChadAction::AddSquad { id, name: name.to_string(), owner };
+		self.tx.send(action).expect("Send AddSquad");
+	}
+
+	pub fn add_member(&self, squad_id: u64, symbol: &str) {
+		let action = ChadAction::AddMember { squad_id, symbol: symbol.to_string() };
+		self.tx.send(action).expect("Send AddMember");
+	}
 }
 
 fn handle_action(action: ChadAction, echo: &Echo) {
@@ -123,12 +123,23 @@ fn squads(owner: u64, chamber: &Chamber) -> Vec<Squad> {
 			vec![&SQUAD_NAME, &SQUAD_MEMBERS],
 		);
 		let name = targets.get(&SQUAD_NAME).map(|it| it.as_str().to_owned()).unwrap_or_else(|| format!("Squad-{}", id));
-		let members = targets.get(&SQUAD_MEMBERS).map(|it| {
+		let member_ids = targets.get(&SQUAD_MEMBERS).map(|it| {
 			it.as_str()
 				.split(":")
 				.map(|it| it.parse::<u64>().expect("member-id"))
 				.collect::<Vec<_>>()
 		}).unwrap_or_else(|| Vec::new());
+		let members = member_ids.into_iter().map(|member_id| {
+			let object_id = ObjectId::String(member_id.to_string());
+			let targets = chamber.targets_at_object_points(
+				&object_id,
+				vec![&MEMBER_SYMBOL, &MEMBER_SQUAD],
+			);
+			SquadMember {
+				squad_id: targets.get(&MEMBER_SQUAD).expect("Squad target").as_str().parse::<u64>().expect("u64"),
+				symbol: targets.get(&MEMBER_SYMBOL).expect("Symbol target").as_str().to_string(),
+			}
+		}).collect();
 		Squad { id, name, owner, members }
 	}).collect()
 }
