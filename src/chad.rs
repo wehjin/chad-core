@@ -6,41 +6,27 @@ use std::thread;
 
 use echo_lib::{Chamber, Echo, ObjectId, Target};
 
+use crate::{chamber, oid, point, target};
 use crate::core::{Lot, Squad, SquadMember};
-use crate::target;
-
-mod point {
-	use echo_lib::Point;
-
-	pub const PRICE_F64: Point = Point::Static { aspect: "Price", name: "f64" };
-	pub const SQUAD_NAME: Point = Point::Static { aspect: "Squad", name: "name" };
-	pub const SQUAD_OWNER: Point = Point::Static { aspect: "Squad", name: "owner" };
-	pub const SQUAD_MEMBERS: Point = Point::Static { aspect: "Squad", name: "members" };
-	pub const MEMBER_SQUAD: Point = Point::Static { aspect: "Member", name: "squad" };
-	pub const MEMBER_SYMBOL: Point = Point::Static { aspect: "Member", name: "symbol" };
-	pub const LOT_SQUAD: Point = Point::Static { aspect: "Lot", name: "squad" };
-	pub const LOT_SYMBOL: Point = Point::Static { aspect: "Lot", name: "symbol" };
-	pub const LOT_SHARES: Point = Point::Static { aspect: "Lot", name: "shares" };
-	pub const LOT_ACCOUNT: Point = Point::Static { aspect: "Lot", name: "account" };
-}
 
 #[derive(Clone, Debug)]
-enum ChadAction {
+enum Action {
 	Snap(Sender<Sender<SearchAction>>),
 	AddSquad { id: u64, name: String, owner: u64 },
 	AddMember { squad_id: u64, symbol: String, price: f64 },
 	AddLot { squad_id: u64, id: u64, symbol: String, shares: f64, account: String },
+	SetUnspent { squad_id: u64, unspent: f64 },
 }
 
 #[derive(Clone, Debug)]
-pub struct Chad { tx: Sender<ChadAction> }
+pub struct Chad { tx: Sender<Action> }
 
 impl Chad {
 	pub fn connect_tmp() -> Self {
 		let mut path = std::env::temp_dir();
 		path.push(format!("{}", rand::random::<u32>()));
 		let echo = Echo::connect("chad", &path);
-		let (tx, rx) = channel::<ChadAction>();
+		let (tx, rx) = channel::<Action>();
 		thread::spawn(move || for action in rx {
 			handle_action(action, &echo)
 		});
@@ -49,32 +35,37 @@ impl Chad {
 
 	pub fn snap(&self) -> Snap {
 		let (tx, rx) = channel();
-		self.tx.send(ChadAction::Snap(tx)).expect("Send Snap");
+		self.tx.send(Action::Snap(tx)).expect("Send Snap");
 		let sender = rx.recv().expect("Recv SnapSearch");
 		Snap { tx: sender }
 	}
 
 	pub fn add_squad(&self, id: u64, name: &str, owner: u64) {
-		let action = ChadAction::AddSquad { id, name: name.to_string(), owner };
+		let action = Action::AddSquad { id, name: name.to_string(), owner };
 		self.tx.send(action).expect("Send AddSquad");
 	}
 
+	pub fn set_unspent(&self, squad_id: u64, unspent: f64) {
+		let action = Action::SetUnspent { squad_id, unspent };
+		self.tx.send(action).expect("Send SetUnspent");
+	}
+
 	pub fn add_member(&self, squad_id: u64, symbol: &str, price: f64) {
-		let action = ChadAction::AddMember { squad_id, symbol: symbol.to_string(), price };
+		let action = Action::AddMember { squad_id, symbol: symbol.to_string(), price };
 		self.tx.send(action).expect("Send AddMember");
 	}
 
 	pub fn add_lot(&self, squad_id: u64, id: u64, symbol: &str, account: &str, shares: f64) {
 		let account = account.to_string();
 		let symbol = symbol.to_string();
-		let action = ChadAction::AddLot { squad_id, id, symbol, shares, account };
+		let action = Action::AddLot { squad_id, id, symbol, shares, account };
 		self.tx.send(action).expect("Send AddLot");
 	}
 }
 
-fn handle_action(action: ChadAction, echo: &Echo) {
+fn handle_action(action: Action, echo: &Echo) {
 	match action {
-		ChadAction::Snap(reply) => {
+		Action::Snap(reply) => {
 			let chamber = echo.chamber().expect("Snap chamber");
 			let (tx, rx) = channel();
 			thread::spawn(move || for action in rx {
@@ -82,9 +73,9 @@ fn handle_action(action: ChadAction, echo: &Echo) {
 			});
 			reply.send(tx).expect("Send Snap reply");
 		}
-		ChadAction::AddSquad { id, name, owner } => add_squad(id, name, owner, echo),
-		ChadAction::AddMember { squad_id, symbol, price } => add_member(squad_id, symbol, price, echo),
-		ChadAction::AddLot { squad_id, id, symbol, shares, account } => {
+		Action::AddSquad { id, name, owner } => add_squad(id, name, owner, echo),
+		Action::AddMember { squad_id, symbol, price } => add_member(squad_id, symbol, price, echo),
+		Action::AddLot { squad_id, id, symbol, shares, account } => {
 			echo.write(|scope| {
 				let object_id = ObjectId::String(id.to_string());
 				let properties = vec![
@@ -95,6 +86,18 @@ fn handle_action(action: ChadAction, echo: &Echo) {
 				];
 				scope.write_object_properties(&object_id, properties);
 			}).expect("Write AddLot");
+		}
+		Action::SetUnspent { squad_id, unspent } => {
+			let chamber = echo.chamber().expect("Chamber in SetUnspent");
+			let previous = chamber::unspent(squad_id, &chamber);
+			if unspent != previous {
+				echo.write(|scope| {
+					scope.write_object_properties(
+						&oid::from_squad_id(squad_id),
+						vec![(&point::SQUAD_UNSPENT, target::from_f64(unspent))],
+					)
+				}).expect("Write SetUnspent")
+			}
 		}
 	}
 }
@@ -148,7 +151,7 @@ fn add_member(squad_id: u64, symbol: String, price: f64, echo: &Echo) {
 				],
 			);
 			scope.write_object_properties(
-				&ObjectId::String(squad_id.to_string()),
+				&oid::from_squad_id(squad_id),
 				vec![(&point::SQUAD_MEMBERS, Target::String(squad_members.iter().map(u64::to_string).collect::<Vec<_>>().join(":")))],
 			);
 		}).expect("Write add_member");
@@ -161,14 +164,16 @@ fn squads(owner: u64, chamber: &Chamber) -> Vec<Squad> {
 		let squad_id = id(&oid);
 		let targets = chamber.targets_at_object_points(&oid, vec![
 			&point::SQUAD_NAME,
-			&point::SQUAD_MEMBERS
+			&point::SQUAD_MEMBERS,
+			&point::SQUAD_UNSPENT,
 		]);
 		let name = targets.get(&point::SQUAD_NAME).map(string).unwrap_or_else(|| format!("Squad-{}", squad_id));
 		let member_ids = targets.get(&point::SQUAD_MEMBERS).map(target::to_member_ids).unwrap_or_else(Vec::new);
 		let members: Vec<SquadMember> = member_ids.into_iter().map(|member_id| squad_member(member_id, chamber)).collect();
+		let unspent = targets.get(&point::SQUAD_UNSPENT).cloned().map(target::to_f64).unwrap_or(0.0);
 		let lots = lots(squad_id, chamber);
 		let prices = member_prices(&members, chamber);
-		Squad { id: squad_id, name, owner, members, lots, prices }
+		Squad { id: squad_id, name, owner, members, lots, prices, unspent }
 	}).collect()
 }
 

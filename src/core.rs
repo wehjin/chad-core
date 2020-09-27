@@ -8,6 +8,7 @@ pub struct Squad {
 	pub members: Vec<SquadMember>,
 	pub lots: Vec<Lot>,
 	pub prices: HashMap<String, f64>,
+	pub unspent: f64,
 }
 
 #[derive(Clone, Debug, PartialEq)]

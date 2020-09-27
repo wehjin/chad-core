@@ -9,6 +9,16 @@ const LOT_ID: u64 = 3000;
 const ACCOUNT1: &str = "main";
 const SHARES1: f64 = 10.0;
 const PRICE1: f64 = 5.0;
+const UNSPENT1: f64 = 100.0;
+
+#[test]
+fn set_unspent_updates_squad() {
+	let chad = Chad::connect_tmp();
+	chad.add_squad(SQUAD_ID, SQUAD_NAME, OWNER);
+	chad.set_unspent(SQUAD_ID, UNSPENT1);
+	let squad = chad.snap().squads(OWNER).first().cloned().expect("First squad");
+	assert_eq!(UNSPENT1, squad.unspent);
+}
 
 #[test]
 fn add_squad_produces_a_squad_in_next_snap() {
