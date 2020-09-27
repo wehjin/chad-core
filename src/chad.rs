@@ -7,6 +7,7 @@ use std::thread;
 use echo_lib::{Chamber, Echo, ObjectId, Target};
 
 use crate::core::{Lot, Squad, SquadMember};
+use crate::target;
 
 mod point {
 	use echo_lib::Point;
@@ -135,7 +136,7 @@ fn add_member(squad_id: u64, symbol: String, price: f64, echo: &Echo) {
 				scope.write_object_properties(
 					&symbol_oid(&symbol),
 					vec![
-						(&point::PRICE_F64, f64_to_target(price))
+						(&point::PRICE_F64, target::from_f64(price))
 					],
 				);
 			}
@@ -163,7 +164,7 @@ fn squads(owner: u64, chamber: &Chamber) -> Vec<Squad> {
 			&point::SQUAD_MEMBERS
 		]);
 		let name = targets.get(&point::SQUAD_NAME).map(string).unwrap_or_else(|| format!("Squad-{}", squad_id));
-		let member_ids = targets.get(&point::SQUAD_MEMBERS).map(target_to_member_ids).unwrap_or_else(Vec::new);
+		let member_ids = targets.get(&point::SQUAD_MEMBERS).map(target::to_member_ids).unwrap_or_else(Vec::new);
 		let members: Vec<SquadMember> = member_ids.into_iter().map(|member_id| squad_member(member_id, chamber)).collect();
 		let lots = lots(squad_id, chamber);
 		let prices = member_prices(&members, chamber);
@@ -184,19 +185,9 @@ fn member_prices(members: &Vec<SquadMember>, chamber: &Chamber) -> HashMap<Strin
 fn price_for_symbol(symbol: &String, chamber: &Chamber) -> Option<f64> {
 	let oid = symbol_oid(symbol);
 	let price_target = chamber.target_at_object_point_or_none(&oid, &point::PRICE_F64);
-	price_target.map(target_to_f64)
+	price_target.map(target::to_f64)
 }
 
-fn target_to_f64(target: Target) -> f64 {
-	match target {
-		Target::String(s) => s.parse::<f64>().expect("parse price"),
-		_ => panic!("Invalid target for price")
-	}
-}
-
-fn f64_to_target(value: f64) -> Target {
-	Target::String(format!("{}", value))
-}
 
 fn symbol_oid(symbol: &String) -> ObjectId {
 	ObjectId::String(symbol.to_string())
@@ -246,14 +237,7 @@ fn squad_members(squad_id: u64, chamber: &Chamber) -> Vec<u64> {
 		&ObjectId::String(squad_id.to_string()),
 		&point::SQUAD_MEMBERS,
 	);
-	target.map(|ref it| target_to_member_ids(it)).unwrap_or(Vec::new())
-}
-
-fn target_to_member_ids(target: &Target) -> Vec<u64> {
-	target.as_str()
-		.split(":")
-		.map(|it| it.parse::<u64>().expect("member-id"))
-		.collect::<Vec<_>>()
+	target.map(|ref it| target::to_member_ids(it)).unwrap_or(Vec::new())
 }
 
 #[derive(Clone, Debug)]
