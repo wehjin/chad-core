@@ -1,6 +1,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::path::Path;
 use std::sync::mpsc::{channel, Sender};
 use std::thread;
 
@@ -25,7 +26,11 @@ impl Chad {
 	pub fn connect_tmp() -> Self {
 		let mut path = std::env::temp_dir();
 		path.push(format!("{}", rand::random::<u32>()));
-		let echo = Echo::connect("chad", &path);
+		Self::connect(&path)
+	}
+
+	pub fn connect(data_dir: &Path) -> Self {
+		let echo = Echo::connect("chad", &data_dir);
 		let (tx, rx) = channel::<Action>();
 		thread::spawn(move || for action in rx {
 			handle_action(action, &echo)
