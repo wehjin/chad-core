@@ -11,6 +11,18 @@ pub struct Squad {
 	pub unspent: f64,
 }
 
+impl Squad {
+	pub fn shares(&self) -> HashMap<String, f64> {
+		let mut hashmap = HashMap::new();
+		for lot in &self.lots {
+			let previous = *hashmap.get(&lot.symbol).unwrap_or(&0.0);
+			let next = previous + lot.shares;
+			hashmap.insert(lot.symbol.to_owned(), next);
+		}
+		hashmap
+	}
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct SquadMember {
 	pub squad_id: u64,

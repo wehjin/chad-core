@@ -62,3 +62,15 @@ fn add_lot_registers_a_lot() {
 		shares: SHARES1,
 	}, lots);
 }
+
+#[test]
+fn squad_shares_match_inputs() {
+	let chad = Chad::connect_tmp();
+	chad.add_squad(SQUAD_ID, SQUAD_NAME, OWNER);
+	chad.add_member(SQUAD_ID, SYMBOL1, PRICE1);
+	chad.add_lot(SQUAD_ID, LOT_ID, SYMBOL1, ACCOUNT1, SHARES1);
+	let squads = chad.snap().squads(OWNER);
+	let squad = squads.first().expect("First squad");
+	let shares =squad.shares();
+	assert_eq!(SHARES1, shares[SYMBOL1])
+}
