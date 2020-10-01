@@ -5,6 +5,7 @@ const OWNER: u64 = 1000;
 const SQUAD_ID: u64 = 2000;
 const SQUAD_NAME: &str = "Blue";
 const SYMBOL1: &str = "KO";
+const SYMBOL2: &str = "PEP";
 const LOT_ID: u64 = 3000;
 const ACCOUNT1: &str = "main";
 const SHARES1: f64 = 10.0;
@@ -33,7 +34,7 @@ fn add_squad_produces_a_squad_in_next_snap() {
 }
 
 #[test]
-fn add_member_appends_member_to_squad_and_sets_price_at_symbol() {
+fn add_member_adds_member_to_squad_and_sets_price_at_symbol() {
 	let chad = Chad::connect_tmp();
 	chad.add_squad(SQUAD_ID, SQUAD_NAME, OWNER);
 	chad.add_member(SQUAD_ID, SYMBOL1, PRICE1);
@@ -43,6 +44,18 @@ fn add_member_appends_member_to_squad_and_sets_price_at_symbol() {
 	assert_eq!(&SquadMember { squad_id: SQUAD_ID, symbol: SYMBOL1.to_string(), price: PRICE1 }, member);
 	let prices = &squad.prices;
 	assert_eq!(PRICE1, prices[SYMBOL1]);
+}
+
+#[test]
+fn add_member_places_new_member_at_index_0() {
+	let chad = Chad::connect_tmp();
+	chad.add_squad(SQUAD_ID, SQUAD_NAME, OWNER);
+	chad.add_member(SQUAD_ID, SYMBOL1, PRICE1);
+	chad.add_member(SQUAD_ID, SYMBOL2, PRICE1);
+	let squads = chad.snap().squads(OWNER);
+	let squad = squads.first().expect("First squad");
+	let symbols = squad.members.iter().map(|it| it.symbol.to_owned()).collect::<Vec<_>>();
+	assert_eq!(vec![SYMBOL2.to_string(), SYMBOL1.to_string()], symbols);
 }
 
 #[test]
@@ -71,6 +84,6 @@ fn squad_shares_match_inputs() {
 	chad.add_lot(SQUAD_ID, LOT_ID, SYMBOL1, ACCOUNT1, SHARES1);
 	let squads = chad.snap().squads(OWNER);
 	let squad = squads.first().expect("First squad");
-	let shares =squad.shares();
+	let shares = squad.shares();
 	assert_eq!(SHARES1, shares[SYMBOL1])
 }

@@ -138,7 +138,7 @@ fn add_member(squad_id: u64, symbol: String, price: f64, echo: &Echo) {
 	let previous_price = price_for_symbol(&symbol, &chamber);
 	let mut squad_members = squad_members(squad_id, &chamber);
 	if !squad_members.contains(&member_id) {
-		squad_members.push(member_id);
+		squad_members.insert(0, member_id);
 		echo.write(|scope| {
 			if Some(price) != previous_price {
 				scope.write_object_properties(
