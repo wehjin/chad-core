@@ -78,6 +78,18 @@ fn add_lot_registers_a_lot() {
 }
 
 #[test]
+fn del_lot_removes_lot() {
+	let chad = Chad::connect_tmp();
+	chad.add_squad(SQUAD_ID, SQUAD_NAME, OWNER);
+	chad.add_member(SQUAD_ID, SYMBOL1, PRICE1);
+	chad.add_lot(SQUAD_ID, LOT_ID1, SYMBOL1, ACCOUNT1, SHARES1);
+	chad.del_lot(SQUAD_ID, LOT_ID1);
+	let squads = chad.snap().squads(OWNER);
+	let squad = squads.first().expect("First squad");
+	assert_eq!(0, squad.lots.len());
+}
+
+#[test]
 fn squad_shares_match_inputs() {
 	let chad = Chad::connect_tmp();
 	chad.add_squad(SQUAD_ID, SQUAD_NAME, OWNER);

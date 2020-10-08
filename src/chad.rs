@@ -16,6 +16,7 @@ enum Action {
 	AddSquad { id: u64, name: String, owner: u64 },
 	AddMember { squad_id: u64, symbol: String, price: f64 },
 	AddLot { squad_id: u64, id: u64, symbol: String, shares: f64, account: String },
+	DelLot { squad_id: u64, lot_id: u64 },
 	SetUnspent { squad_id: u64, unspent: f64 },
 }
 
@@ -66,6 +67,11 @@ impl Chad {
 		let action = Action::AddLot { squad_id, id, symbol, shares, account };
 		self.tx.send(action).expect("Send AddLot");
 	}
+
+	pub fn del_lot(&self, squad_id: u64, lot_id: u64) {
+		let action = Action::DelLot { squad_id, lot_id };
+		self.tx.send(action).expect("Send DelLot");
+	}
 }
 
 fn handle_action(action: Action, echo: &Echo) {
@@ -91,6 +97,12 @@ fn handle_action(action: Action, echo: &Echo) {
 				];
 				scope.write_object_properties(&object_id, properties);
 			}).expect("Write AddLot");
+		}
+		Action::DelLot { lot_id, .. } => {
+			echo.write(|scope| {
+				let object_id = ObjectId::String(lot_id.to_string());
+				scope.write_object_properties(&object_id, vec![(&point::LOT_SQUAD, Target::String("0".to_string())), ])
+			}).expect("Write DelLot");
 		}
 		Action::SetUnspent { squad_id, unspent } => {
 			let chamber = echo.chamber().expect("Chamber in SetUnspent");
